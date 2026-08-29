@@ -44,6 +44,8 @@ def interactive_setup_headers():
     try:
         while True:
             line = input()
+            if not line and lines:
+                break
             lines.append(line)
     except EOFError:
         pass
@@ -52,21 +54,22 @@ def interactive_setup_headers():
         print("No input provided. Aborted.")
         return
     auth_path = settings.data_path / "browser.json"
-    YTMClient.setup_from_headers(raw, auth_path)
-    print(f"Successfully saved authentication to {auth_path}")
+    try:
+        YTMClient.setup_from_headers(raw, auth_path)
+        print(f"\n\033[92m✅ Successfully saved and verified authentication at {auth_path}\033[0m")
+    except Exception as e:
+        print(f"\n\033[91m❌ Setup failed: {e}\033[0m")
 
 async def run_server():
     setup_logging()
     logger = logging.getLogger("lastfm_scrobbler.main")
-    logger.info("Starting YouTube Music -> Last.fm Scrobbler (Headless Mode)...")
+    logger.info("Starting YouTube Music -> Last.fm Scrobbler...")
 
-    # Initialize components
     db = Database(settings.db_path)
     ytm = YTMClient()
     lastfm = LastFMClient(db)
     tracker = ScrobbleTracker(ytm, lastfm, db)
 
-    # Run tracking loop
     await tracking_loop(tracker)
 
 def main():

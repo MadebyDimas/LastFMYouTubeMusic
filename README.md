@@ -1,6 +1,6 @@
 # YouTube Music to Last.fm Scrobbler
 
-Навайбкоженный, легкий серверный скроблер **YouTube Music** для **Last.fm**, работающий в **Docker**.
+Серверный скроблер **YouTube Music** для **Last.fm**, работающий в **Docker**.
 
 ---
 
@@ -16,7 +16,7 @@
 ## Быстрый старт
 
 ### 1. Настройка Last.fm
-Скопируйте шаблон конфигурации и укажите ваши ключи и данные аккаунта Last.fm:
+Укажите ваши ключи и данные аккаунта Last.fm в файле `.env`:
 ```bash
 cp .env.example .env
 nano .env
@@ -37,7 +37,6 @@ docker compose exec scrobbler python src/main.py setup-headers
 ```
 4. Вставьте скопированный текст и нажмите `Enter` &rarr; `Ctrl+D`. Файл авторизации автоматически сохранится в `./data/browser.json`.
 
-
 ---
 
 ## Управление контейнером
@@ -55,14 +54,3 @@ docker compose restart
 # Остановка:
 docker compose down
 ```
-
----
-
-## Конфигурация (`.env`)
-
-Все параметры хранятся в `.env`, а база данных и сессии в папке `./data`:
-- `LASTFM_API_KEY` & `LASTFM_API_SECRET`
-- `LASTFM_USERNAME` & `LASTFM_PASSWORD`
-- `POLL_INTERVAL=30`
-- `SCROBBLE_PERCENTAGE=0.2`
-- `CLEAN_TITLES=true`

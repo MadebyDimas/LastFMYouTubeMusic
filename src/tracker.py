@@ -26,18 +26,14 @@ class TrackState:
 
     def is_eligible_for_scrobble(self, min_duration: int = 30, scrobble_percent: float = 0.2) -> bool:
         if self.duration < min_duration:
-            # Track is shorter than 30s (e.g., sound effect or short intro)
             return False
-        # Scrobble threshold: 20% of track length (capped at 4 minutes)
         required_seconds = min(self.duration * scrobble_percent, 240.0)
         return self.elapsed_time() >= required_seconds
 
     def is_finished(self) -> bool:
-        """Returns True if the track duration plus a small buffer has elapsed."""
         return self.elapsed_time() >= (self.duration + 15)
 
     def is_playing(self) -> bool:
-        """Returns True if the track is still within its playing duration."""
         return not self.is_finished()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -66,6 +62,7 @@ class ScrobbleTracker:
         self.is_running: bool = False
         self.last_poll_time: Optional[float] = None
         self.last_error: Optional[str] = None
+        self._auth_warning_logged: bool = False
 
     def log_event(self, message: str, level: str = "info", data: Optional[Dict[str, Any]] = None):
         event = {
@@ -97,9 +94,6 @@ class ScrobbleTracker:
         return f"{artist.strip().lower()}::{title.strip().lower()}::{video_id or ''}"
 
     def check_and_scrobble_current(self, force: bool = False):
-        """
-        Evaluates if the currently playing track has met scrobble criteria and scrobbles it.
-        """
         if not self.current_track or self.current_track.scrobbled:
             return
 
@@ -107,7 +101,6 @@ class ScrobbleTracker:
             min_duration=settings.MIN_TRACK_DURATION,
             scrobble_percent=settings.SCROBBLE_PERCENTAGE
         ):
-            # Check DB deduplication window
             dedup_window = max(self.current_track.duration * 2, 300)
             if self.db.is_recently_scrobbled(
                 self.current_track.title,
@@ -160,14 +153,12 @@ class ScrobbleTracker:
                 )
 
     def process_history(self):
-        """
-        Fetches latest YTM history and detects track transitions without duplicate scrobbling.
-        """
         self.last_poll_time = time.time()
-        self.last_error = None
 
         if not self.ytm.is_authenticated():
-            self.log_event("YouTube Music is not authenticated. Waiting for setup.", level="warning")
+            if not self._auth_warning_logged:
+                self.log_event("YouTube Music is not authenticated. Please run 'setup-headers' or 'setup-oauth'.", level="warning")
+                self._auth_warning_logged = True
             return
 
         if not self.lastfm.is_authenticated():
@@ -176,8 +167,21 @@ class ScrobbleTracker:
 
         try:
             history = self.ytm.get_history()
+            if self._auth_warning_logged:
+                self.log_event("YouTube Music authentication verified and active.", level="info")
+                self._auth_warning_logged = False
+            self.last_error = None
+        except RuntimeError as e:
+            self.last_error = str(e)
+            if not self._auth_warning_logged:
+                self.log_event(f"YouTube Music authentication error: {e}", level="warning")
+                self._auth_warning_logged = True
+            return
         except Exception as e:
-            self.log_event(f"Failed to fetch YouTube Music history: {e}", level="error")
+            self.last_error = str(e)
+            if not self._auth_warning_logged:
+                self.log_event(f"Failed to fetch YouTube Music history: {e}", level="error")
+                self._auth_warning_logged = True
             return
 
         if not history:
@@ -187,13 +191,10 @@ class ScrobbleTracker:
         artist, title = self._normalize_track(latest_ytm_track)
         track_key = self._make_track_key(artist, title, latest_ytm_track.video_id)
 
-        # If no active track is being tracked currently
         if self.current_track is None:
-            # If this is the exact same track we already processed and completed, do not restart tracking
             if self.last_handled_key == track_key:
                 return
 
-            # Start new track tracking
             self.current_track = TrackState(latest_ytm_track, artist, title)
             self.last_handled_key = track_key
             self.lastfm.update_now_playing(
@@ -206,27 +207,19 @@ class ScrobbleTracker:
             self.log_event(f"Now playing: {artist} - {title}", level="info", data=self.current_track.to_dict())
             return
 
-        # Check if the track changed
         current_key = self._make_track_key(self.current_track.artist, self.current_track.title, self.current_track.video_id)
         same_track = (current_key == track_key)
 
         if same_track:
-            # Same track is still playing. Check if it reached scrobble threshold
             self.check_and_scrobble_current()
 
-            # If track duration elapsed + buffer, it has finished playing
             if self.current_track.is_finished():
-                # Make sure it's scrobbled if eligible
                 self.check_and_scrobble_current(force=False)
-                # Clear active track when idle timeout is exceeded (> duration + 30s)
-                # Note: self.last_handled_key remains set to track_key, preventing re-scrobbling!
                 if self.current_track.elapsed_time() > (self.current_track.duration + 30):
                     self.current_track = None
         else:
-            # Track changed! First, verify if previous track was eligible for scrobbling
             self.check_and_scrobble_current(force=False)
 
-            # Start new current track
             self.current_track = TrackState(latest_ytm_track, artist, title)
             self.last_handled_key = track_key
             self.lastfm.update_now_playing(
@@ -240,7 +233,7 @@ class ScrobbleTracker:
 
     def get_status(self) -> Dict[str, Any]:
         return {
-            "ytm_connected": self.ytm.is_authenticated(),
+            "ytm_connected": self.ytm.is_authenticated() and not self._auth_warning_logged,
             "lastfm_connected": self.lastfm.is_authenticated(),
             "is_running": self.is_running,
             "last_poll_time": self.last_poll_time,

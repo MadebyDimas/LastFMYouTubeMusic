@@ -18,7 +18,6 @@ class Settings(BaseSettings):
     LASTFM_SESSION_KEY: str = ""
     
     # YouTube Music Auth
-    YTM_AUTH_TYPE: str = "oauth"  # 'oauth' or 'browser' or 'auto'
     YTM_AUTH_FILE: Optional[str] = None
     
     # Scrobbler settings
@@ -40,14 +39,7 @@ class Settings(BaseSettings):
     def ytm_auth_path(self) -> Path:
         if self.YTM_AUTH_FILE:
             return Path(self.YTM_AUTH_FILE)
-        # Check oauth.json first, then browser.json
-        oauth_path = self.data_path / "oauth.json"
-        if oauth_path.exists():
-            return oauth_path
-        browser_path = self.data_path / "browser.json"
-        if browser_path.exists():
-            return browser_path
-        return oauth_path
+        return self.data_path / "browser.json"
 
     @property
     def db_path(self) -> Path:
